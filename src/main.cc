@@ -57,18 +57,52 @@ void gftt(cv::Mat &img, std::vector<cv::KeyPoint> &kps)
   cv::goodFeaturesToTrack(
                         img,
                         corners,
-                        1000,
-                        0.0001,
+                        250,
+                        0.01,
                         20.);
 
-  /// Set the need parameters to find the refined corners
-  cv::Size winSize = cv::Size( 5, 5 );
-  cv::Size zeroZone = cv::Size( -1, -1 );
-  cv::TermCriteria criteria = cv::TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 40, 0.001);
+  // /// Set the need parameters to find the refined corners
+  // cv::Size winSize = cv::Size( 5, 5 );
+  // cv::Size zeroZone = cv::Size( -1, -1 );
+  // cv::TermCriteria criteria = cv::TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 40, 0.001);
 
-  cv::cornerSubPix(img, corners, winSize, zeroZone, criteria);
+  // cv::cornerSubPix(img, corners, winSize, zeroZone, criteria);
   
-  cv::KeyPoint::convert(corners, kps);
+  if(corners.size() < 250)
+  {
+    cv::Mat mask;
+
+    for(auto &pt : corners)
+    {
+      cv::circle(mask, pt, 20, 0, -1);
+    }
+
+    std::vector<cv::Point2f> more_corners;
+
+    auto nb2detect = 250 - corners.size();
+
+    cv::goodFeaturesToTrack(
+                      img,
+                      more_corners,
+                      nb2detect,
+                      0.01,
+                      10.,
+                      mask);
+    
+    for(auto &pt : more_corners)
+    {
+      corners.push_back(pt);
+    }
+  }
+
+  cv::KeyPoint::convert(corners, kps, 12);
+
+  // cv::Mat outimg;
+  // cv::drawKeypoints(img, kps, outimg, cv::Scalar::all(-1), 4);
+
+  // cv::namedWindow("a");
+  // cv::imshow("a", outimg);
+  // cv::waitKey(0);
 }
 
 void detectHomogeneously(cv::Ptr<cv::Feature2D> &detector, cv::Mat &img, std::vector<cv::KeyPoint> &kps)
@@ -136,6 +170,12 @@ void detectHomogeneously(cv::Ptr<cv::Feature2D> &detector, cv::Mat &img, std::ve
 
       kps.push_back(vbestkps[0]);
 
+      if(kps.size() == 250)
+      {
+        j = wstep;
+        i = hstep;
+      }
+
       cv::circle(mask, vbestkps[0].pt, 20, 0, -1);
     }
   }
@@ -157,10 +197,19 @@ void detectHomogeneously(cv::Ptr<cv::Feature2D> &detector, cv::Mat &img, std::ve
 
         kps.push_back(vbestkps[0]);
 
+        if(kps.size() == 250)
+        {
+          j = wstep;
+          i = hstep;
+        }
+
         cv::circle(mask, vbestkps[0].pt, 20, 0, -1);
       }
     }
   }
+
+  // std::cout << kps[0].size << std::endl;
+  // std::cout << kps[0].response << std::endl;
 
   // cv::Mat outimg;
   // cv::drawKeypoints(img, kps, outimg, cv::Scalar::all(-1), 4);
@@ -175,10 +224,10 @@ int main(int argc, char** argv) {
   // Creating feature detector and descriptor
 
   // cv::Ptr<cv::Feature2D> detector = cv::ORB::create(250);  // Default params
-  cv::Ptr<cv::Feature2D> detector = cv::BRISK::create(15,3);
+  cv::Ptr<cv::Feature2D> detector = cv::BRISK::create(10,3);
 
-  // cv::Ptr<cv::Feature2D> descriptor = cv::ORB::create(250);
-  cv::Ptr<cv::Feature2D> descriptor = cv::BRISK::create(20,3);
+  cv::Ptr<cv::Feature2D> descriptor = cv::ORB::create(250);
+  // cv::Ptr<cv::Feature2D> descriptor = cv::BRISK::create(20,3);
   // cv::Ptr<cv::Feature2D> descriptor = cv::xfeatures2d::BriefDescriptorExtractor::create();
   // cv::Ptr<cv::Feature2D> descriptor = cv::xfeatures2d::LATCH::create();
 
@@ -204,22 +253,31 @@ int main(int argc, char** argv) {
     auto start = std::chrono::steady_clock::now();
 
     // detector->detect(img, kps);
-    detectHomogeneously(detector, img, kps);
-    // gftt(img, kps);
+    // detectHomogeneously(detector, img, kps);
+    gftt(img, kps);
 
     auto end = std::chrono::steady_clock::now();
     auto diff = end - start;
 
     auto detect_time = std::chrono::duration<double, std::milli>(diff).count();
 
-    // std::cout << "\n> Number of points described: #" << kps.size();
+    // std::cout << "\n> Number of points detected: #" << kps.size();
     // std::cout << "\n> Detection time: #" << detect_time << "ms";
     // std::cout << "\n> Detection time / feat: #" << detect_time / kps.size() << "ms\n";
+
+    start = std::chrono::steady_clock::now();
 
     cv::Mat dscs;
     descriptor->compute(img, kps, dscs);
 
-    // std::cout << "> Number of points described: #" << kps.size() << std::endl;
+    end = std::chrono::steady_clock::now();
+    diff = end - start;
+
+    detect_time = std::chrono::duration<double, std::milli>(diff).count();
+
+    // std::cout << "\n> Number of points described: #" << kps.size();
+    // std::cout << "\n> Description time: #" << detect_time << "ms";
+    // std::cout << "\n> Description time / feat: #" << detect_time / kps.size() << "ms\n";
 
     ibow_lcd::LCDetectorResult result;
     lcdet.process(i, kps, dscs, &result);
@@ -233,6 +291,41 @@ int main(int argc, char** argv) {
         std::cout << "--- Processing image " << i << std::endl;
         std::cout << "--- Loop detected!!!: " << result.train_id <<
                      " with " << result.inliers << " inliers" << std::endl;
+
+        std::vector<cv::Point2f> query_pts = result.vquery_pts;
+        std::vector<cv::Point2f> train_pts = result.vtrain_pts;
+        
+        std::vector<cv::KeyPoint> query_kps;
+        std::vector<cv::KeyPoint> train_kps;
+        
+        cv::KeyPoint::convert(query_pts, query_kps, 6.);
+        cv::KeyPoint::convert(train_pts, train_kps, 6.);
+
+        std::vector<cv::DMatch> matches;
+
+        for(int l = 0 ; l < query_kps.size() ; ++l)
+        {
+          cv::DMatch m(l,l,1.);
+
+          matches.push_back(m);
+        }
+
+        cv::Mat img2 = cv::imread(filenames[result.train_id]);
+        cv::cvtColor(img2, img2, CV_RGB2GRAY);
+        
+        cv::Mat outimg;
+
+        cv::drawMatches(img,query_kps,img2,train_kps,matches,outimg);
+
+        // cv::hconcat(img,img2,outimg);
+        
+        cv::namedWindow("match");
+        cv::imshow("match",outimg);
+
+        cv::waitKey(0);
+
+
+
         break;
       // case ibow_lcd::LC_NOT_DETECTED:
       //   std::cout << "No loop found" << std::endl;

@@ -148,7 +148,8 @@ void LCDetector::process(const unsigned image_id,
     std::vector<cv::Point2f> ttrain;
     ratioMatchingBF(descs, prev_descs_[best_img], &tmatches);
     convertPoints(kps, prev_kps_[best_img], tmatches, &tquery, &ttrain);
-    unsigned inliers = checkEpipolarGeometry(tquery, ttrain);
+    unsigned inliers = checkEpipolarGeometry(tquery, ttrain, 
+                          result->vquery_pts, result->vtrain_pts);
 
     if (inliers > min_inliers_) {
       // LOOP detected
@@ -265,9 +266,11 @@ void LCDetector::debug(const unsigned image_id,
   std::vector<cv::DMatch> tmatches;
   std::vector<cv::Point2f> tquery;
   std::vector<cv::Point2f> ttrain;
+  std::vector<cv::Point2f> vquery_pts;
+  std::vector<cv::Point2f> vtrain_pts;
   ratioMatchingBF(descs, prev_descs_[best_img], &tmatches);
   convertPoints(kps, prev_kps_[best_img], tmatches, &tquery, &ttrain);
-  unsigned inliers = checkEpipolarGeometry(tquery, ttrain);
+  unsigned inliers = checkEpipolarGeometry(tquery, ttrain, vquery_pts, vtrain_pts);
 
   auto end = std::chrono::steady_clock::now();
   auto diff = end - start;
@@ -408,7 +411,9 @@ void LCDetector::getPriorIslands(
 
 unsigned LCDetector::checkEpipolarGeometry(
                                       const std::vector<cv::Point2f>& query,
-                                      const std::vector<cv::Point2f>& train) {
+                                      const std::vector<cv::Point2f>& train,
+                                      std::vector<cv::Point2f>& good_query,
+                                      std::vector<cv::Point2f>& good_train) {
   std::vector<uchar> inliers(query.size(), 0);
   if (query.size() > 7) {
     cv::Mat F =
@@ -420,12 +425,26 @@ unsigned LCDetector::checkEpipolarGeometry(
         inliers);                            // Match status (inlier or outlier)
   }
 
+  cv::Mat H = 
+    cv::findHomography(
+      cv::Mat(query), cv::Mat(train),
+      cv::RANSAC, 
+      ep_dist_,
+      inliers);
+
   // Extract the surviving (inliers) matches
   auto it = inliers.begin();
   unsigned total_inliers = 0;
-  for (; it != inliers.end(); it++) {
-    if (*it)
+
+  // for (; it != inliers.end(); it++) {
+  for (int i = 0, iend = inliers.size(); i < iend ; i++) {
+    // if (*it)
+    if (inliers[i])
+    {
       total_inliers++;
+      good_query.push_back(query[i]);
+      good_train.push_back(train[i]);
+    }
   }
 
   return total_inliers;

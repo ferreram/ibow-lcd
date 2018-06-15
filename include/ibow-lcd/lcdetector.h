@@ -47,11 +47,11 @@ struct LCDetectorParams {
     p(50),
     nndr(0.9f),
     nndr_bf(0.85f),
-    ep_dist(3.0),
+    ep_dist(5.0),
     conf_prob(0.95),
-    min_score(0.4),
+    min_score(0.3),
     island_size(3),
-    min_inliers(15),
+    min_inliers(10),
     nframes_after_lc(20),
     min_consecutive_loops(5) {}
 
@@ -101,6 +101,9 @@ struct LCDetectorResult {
   unsigned query_id;
   unsigned train_id;
   unsigned inliers;
+
+  std::vector<cv::Point2f> vquery_pts;
+  std::vector<cv::Point2f> vtrain_pts;
 };
 
 class LCDetector {
@@ -165,7 +168,9 @@ class LCDetector {
       std::vector<Island>* p_islands);
   unsigned checkEpipolarGeometry(
       const std::vector<cv::Point2f>& query,
-      const std::vector<cv::Point2f>& train);
+      const std::vector<cv::Point2f>& train,
+      std::vector<cv::Point2f>& good_query,
+      std::vector<cv::Point2f>& good_train);
   void ratioMatchingBF(const cv::Mat& query,
                      const cv::Mat& train,
                      std::vector<cv::DMatch>* matches);
